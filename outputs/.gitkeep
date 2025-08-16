@@ -1,0 +1,2 @@
+# This file ensures the outputs directory is tracked by git
+# The outputs directory is used to store processed files and reports

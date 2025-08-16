@@ -1,0 +1,410 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics - MindWatch{% endblock %}
+
+{% block content %}
+<div class="container mt-5 pt-4">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="text-primary mb-1">
+                        <i class="fas fa-analytics me-2"></i>Advanced Analytics
+                    </h2>
+                    <p class="text-muted mb-0">Deep insights into classroom engagement patterns</p>
+                </div>
+                <div>
+                    <a href="{{ url_for('results') }}" class="btn btn-outline-primary me-2">
+                        <i class="fas fa-arrow-left me-2"></i>Back to Results
+                    </a>
+                    <button class="btn btn-success" onclick="exportDashboard()">
+                        <i class="fas fa-download me-2"></i>Export Dashboard
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if summary %}
+    <!-- Key Metrics Dashboard -->
+    <div class="row g-4 mb-5">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-tachometer-alt me-2"></i>Key Performance Indicators
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-4">
+                        {% if file_type == 'image' %}
+                        <div class="col-lg-3 col-md-6">
+                            <div class="metric-card text-center">
+                                <div class="metric-value text-primary">{{ summary.get('total_students', 0) }}</div>
+                                <div class="metric-label">Students Detected</div>
+                                <div class="metric-change text-success">
+                                    <i class="fas fa-users me-1"></i>Active Session
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-lg-3 col-md-6">
+                            <div class="metric-card text-center">
+                                <div class="metric-value text-success">{{ "%.1f"|format(summary.get('engagement_rate', 0)) }}%</div>
+                                <div class="metric-label">Engagement Rate</div>
+                                <div class="metric-change text-success">
+                                    <i class="fas fa-arrow-up me-1"></i>
+                                    {{ "%.1f"|format(summary.get('engagement_rate', 0) - 50) }}% vs avg
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-lg-3 col-md-6">
+                            <div class="metric-card text-center">
+                                <div class="metric-value text-warning">{{ summary.get('distracted_students', 0) }}</div>
+                                <div class="metric-label">Need Attention</div>
+                                <div class="metric-change text-warning">
+                                    <i class="fas fa-exclamation-triangle me-1"></i>Monitor closely
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-lg-3 col-md-6">
+                            <div class="metric-card text-center">
+                                {% set activity_breakdown = summary.get('activity_breakdown', {}) %}
+                                {% set primary_activity = activity_breakdown.items()|list|sort(attribute='1', reverse=true)|first %}
+                                <div class="metric-value text-info">{{ primary_activity[0]|title if primary_activity else 'N/A' }}</div>
+                                <div class="metric-label">Primary Activity</div>
+                                <div class="metric-change text-info">
+                                    <i class="fas fa-star me-1"></i>Most Common
+                                </div>
+                            </div>
+                        </div>
+                        
+                        {% elif file_type == 'video' %}
+                        <div class="col-lg-3 col-md-6">
+                            <div class="metric-card text-center">
+                                <div class="metric-value text-primary">{{ "%.1f"|format(summary.get('video_duration', 0) / 60) }}m</div>
+                                <div class="metric-label">Analysis Duration</div>
+                                <div class="metric-change text-primary">
+                                    <i class="fas fa-clock me-1"></i>{{ summary.get('total_frames_analyzed', 0) }} frames
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-lg-3 col-md-6">
+                            <div class="metric-card text-center">
+                                {% set student_analysis = summary.get('student_analysis', {}) %}
+                                {% set total_students = student_analysis|length %}
+                                {% set attentive_count = student_analysis.values()|selectattr('classification', 'equalto', 'Attentive')|list|length %}
+                                {% set engagement_rate = (attentive_count / total_students * 100) if total_students > 0 else 0 %}
+                                <div class="metric-value text-success">{{ "%.1f"|format(engagement_rate) }}%</div>
+                                <div class="metric-label">Average Engagement</div>
+                                <div class="metric-change text-success">
+                                    <i class="fas fa-thumbs-up me-1"></i>{{ attentive_count }}/{{ total_students }} students
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-lg-3 col-md-6">
+                            <div class="metric-card text-center">
+                                {% set distracted_count = total_students - attentive_count %}
+                                <div class="metric-value text-warning">{{ distracted_count }}</div>
+                                <div class="metric-label">Distracted Students</div>
+                                <div class="metric-change text-warning">
+                                    <i class="fas fa-exclamation-triangle me-1"></i>{{ "%.1f"|format((distracted_count / total_students * 100) if total_students > 0 else 0) }}%
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-lg-3 col-md-6">
+                            <div class="metric-card text-center">
+                                <div class="metric-value text-info">{{ total_students }}</div>
+                                <div class="metric-label">Students Tracked</div>
+                                <div class="metric-change text-info">
+                                    <i class="fas fa-users me-1"></i>Continuous monitoring
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Section -->
+    <div class="row g-4 mb-5">
+        <!-- Activity Distribution -->
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">
+                        <i class="fas fa-chart-bar me-2"></i>Activity Distribution Analysis
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="activityDistributionChart" height="400"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Engagement Pie Chart -->
+        <div class="col-lg-4">
+            <div class="card shadow-sm">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">
+                        <i class="fas fa-pie-chart me-2"></i>Engagement Breakdown
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="engagementPieChart" height="400"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if file_type == 'video' and summary.get('student_analysis') %}
+    <!-- Student Performance Heatmap -->
+    <div class="row g-4 mb-5">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">
+                        <i class="fas fa-fire me-2"></i>Student Performance Heatmap
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="performanceHeatmap" height="300"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Timeline Analysis -->
+    <div class="row g-4 mb-5">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">
+                        <i class="fas fa-chart-line me-2"></i>Engagement Timeline
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="timelineChart" height="300"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Insights and Recommendations -->
+    <div class="row g-4 mb-5">
+        <div class="col-lg-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-lightbulb me-2"></i>Key Insights
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="insights-list">
+                        {% if file_type == 'image' %}
+                        <div class="insight-item">
+                            <i class="fas fa-check-circle text-success me-2"></i>
+                            <span>{{ summary.get('attentive_students', 0) }} out of {{ summary.get('total_students', 0) }} students are actively engaged</span>
+                        </div>
+                        
+                        {% if summary.get('engagement_rate', 0) > 70 %}
+                        <div class="insight-item">
+                            <i class="fas fa-star text-warning me-2"></i>
+                            <span>Excellent engagement rate of {{ "%.1f"|format(summary.get('engagement_rate', 0)) }}%</span>
+                        </div>
+                        {% elif summary.get('engagement_rate', 0) > 50 %}
+                        <div class="insight-item">
+                            <i class="fas fa-thumbs-up text-info me-2"></i>
+                            <span>Good engagement rate of {{ "%.1f"|format(summary.get('engagement_rate', 0)) }}%</span>
+                        </div>
+                        {% else %}
+                        <div class="insight-item">
+                            <i class="fas fa-exclamation-triangle text-warning me-2"></i>
+                            <span>Engagement rate needs improvement: {{ "%.1f"|format(summary.get('engagement_rate', 0)) }}%</span>
+                        </div>
+                        {% endif %}
+                        
+                        {% set activity_breakdown = summary.get('activity_breakdown', {}) %}
+                        {% if activity_breakdown.get('using_mobile', 0) > 0 %}
+                        <div class="insight-item">
+                            <i class="fas fa-mobile-alt text-danger me-2"></i>
+                            <span>{{ activity_breakdown.get('using_mobile', 0) }} students detected using mobile devices</span>
+                        </div>
+                        {% endif %}
+                        
+                        {% elif file_type == 'video' %}
+                        {% set student_analysis = summary.get('student_analysis', {}) %}
+                        {% set total_students = student_analysis|length %}
+                        {% set attentive_count = student_analysis.values()|selectattr('classification', 'equalto', 'Attentive')|list|length %}
+                        
+                        <div class="insight-item">
+                            <i class="fas fa-users text-primary me-2"></i>
+                            <span>Tracked {{ total_students }} students over {{ "%.1f"|format(summary.get('video_duration', 0)) }} seconds</span>
+                        </div>
+                        
+                        <div class="insight-item">
+                            <i class="fas fa-chart-line text-success me-2"></i>
+                            <span>{{ attentive_count }} students maintained consistent attention</span>
+                        </div>
+                        
+                        {% if (total_students - attentive_count) > 0 %}
+                        <div class="insight-item">
+                            <i class="fas fa-exclamation-triangle text-warning me-2"></i>
+                            <span>{{ total_students - attentive_count }} students need attention improvement</span>
+                        </div>
+                        {% endif %}
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-clipboard-list me-2"></i>Recommendations
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="recommendations-list">
+                        {% if file_type == 'image' %}
+                        {% if summary.get('engagement_rate', 0) < 60 %}
+                        <div class="recommendation-item">
+                            <i class="fas fa-arrow-up text-success me-2"></i>
+                            <span>Consider interactive activities to boost engagement</span>
+                        </div>
+                        {% endif %}
+                        
+                        {% set activity_breakdown = summary.get('activity_breakdown', {}) %}
+                        {% if activity_breakdown.get('sleeping', 0) > 0 %}
+                        <div class="recommendation-item">
+                            <i class="fas fa-bed text-warning me-2"></i>
+                            <span>Address classroom environment factors affecting alertness</span>
+                        </div>
+                        {% endif %}
+                        
+                        {% if activity_breakdown.get('using_mobile', 0) > 0 %}
+                        <div class="recommendation-item">
+                            <i class="fas fa-ban text-danger me-2"></i>
+                            <span>Implement mobile device policy enforcement</span>
+                        </div>
+                        {% endif %}
+                        
+                        {% elif file_type == 'video' %}
+                        {% set student_analysis = summary.get('student_analysis', {}) %}
+                        {% set total_students = student_analysis|length %}
+                        {% set attentive_count = student_analysis.values()|selectattr('classification', 'equalto', 'Attentive')|list|length %}
+                        {% set engagement_rate = (attentive_count / total_students * 100) if total_students > 0 else 0 %}
+                        
+                        {% if engagement_rate < 70 %}
+                        <div class="recommendation-item">
+                            <i class="fas fa-chalkboard-teacher text-primary me-2"></i>
+                            <span>Increase interactive teaching methods</span>
+                        </div>
+                        {% endif %}
+                        
+                        <div class="recommendation-item">
+                            <i class="fas fa-clock text-info me-2"></i>
+                            <span>Monitor attention patterns throughout the session</span>
+                        </div>
+                        
+                        <div class="recommendation-item">
+                            <i class="fas fa-user-graduate text-success me-2"></i>
+                            <span>Provide individual support to distracted students</span>
+                        </div>
+                        {% endif %}
+                        
+                        <div class="recommendation-item">
+                            <i class="fas fa-chart-line text-info me-2"></i>
+                            <span>Continue regular monitoring for trend analysis</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% else %}
+    <!-- No Data State -->
+    <div class="row">
+        <div class="col-12">
+            <div class="text-center py-5">
+                <i class="fas fa-chart-line fa-4x text-muted mb-3"></i>
+                <h3>No Analytics Data Available</h3>
+                <p class="text-muted mb-4">Please process a video or image file to view detailed analytics.</p>
+                <a href="{{ url_for('upload_page') }}" class="btn btn-primary">
+                    <i class="fas fa-upload me-2"></i>Upload File
+                </a>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+{% if summary %}
+<script src="{{ url_for('static', filename='js/analytics.js') }}"></script>
+<script>
+// Initialize analytics with data
+const analyticsData = {
+    summary: {{ summary|tojson }},
+    fileType: '{{ file_type }}',
+    sessionId: '{{ session_id }}'
+};
+
+// Initialize all charts
+initializeAnalytics(analyticsData);
+
+// Export dashboard function
+function exportDashboard() {
+    // Create a simple CSV export of the data
+    let csvContent = "data:text/csv;charset=utf-8,";
+    
+    {% if file_type == 'image' %}
+    csvContent += "Metric,Value\n";
+    csvContent += "Total Students,{{ summary.get('total_students', 0) }}\n";
+    csvContent += "Attentive Students,{{ summary.get('attentive_students', 0) }}\n";
+    csvContent += "Distracted Students,{{ summary.get('distracted_students', 0) }}\n";
+    csvContent += "Engagement Rate,{{ summary.get('engagement_rate', 0) }}%\n";
+    
+    {% set activity_breakdown = summary.get('activity_breakdown', {}) %}
+    csvContent += "\nActivity,Count\n";
+    {% for activity, count in activity_breakdown.items() %}
+    csvContent += "{{ activity }},{{ count }}\n";
+    {% endfor %}
+    
+    {% elif file_type == 'video' %}
+    csvContent += "Metric,Value\n";
+    csvContent += "Video Duration,{{ summary.get('video_duration', 0) }} seconds\n";
+    csvContent += "Students Tracked,{{ summary.get('students_tracked', 0) }}\n";
+    csvContent += "Frames Analyzed,{{ summary.get('total_frames_analyzed', 0) }}\n";
+    
+    {% set student_analysis = summary.get('student_analysis', {}) %}
+    csvContent += "\nStudent ID,Classification,Attentive %,Distracted %,Total Detections\n";
+    {% for student_id, data in student_analysis.items() %}
+    csvContent += "{{ student_id }},{{ data.classification }},{{ data.attentive_percentage }},{{ data.distracted_percentage }},{{ data.total_detections }}\n";
+    {% endfor %}
+    {% endif %}
+    
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "mindwatch_analytics_{{ session_id }}.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+</script>
+{% endif %}
+{% endblock %}

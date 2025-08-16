@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+
+{% block title %}MindWatch - AI Classroom Engagement Analysis{% endblock %}
+
+{% block content %}
+<!-- Hero Section -->
+<section class="hero-section">
+    <div class="container">
+        <div class="row align-items-center min-vh-100">
+            <div class="col-lg-6">
+                <div class="hero-content">
+                    <h1 class="display-4 fw-bold text-primary mb-4">
+                        <i class="fas fa-brain me-3"></i>MindWatch
+                    </h1>
+                    <p class="lead mb-4">
+                        Transform classroom monitoring with AI-powered engagement analysis. 
+                        Upload videos or images to detect student behavior patterns and optimize learning environments.
+                    </p>
+                    
+                    <div class="feature-highlights mb-4">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <div class="feature-item">
+                                    <i class="fas fa-eye text-success me-2"></i>
+                                    <span>Real-time Detection</span>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="feature-item">
+                                    <i class="fas fa-chart-bar text-info me-2"></i>
+                                    <span>Detailed Analytics</span>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="feature-item">
+                                    <i class="fas fa-download text-warning me-2"></i>
+                                    <span>Export Reports</span>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="feature-item">
+                                    <i class="fas fa-users text-primary me-2"></i>
+                                    <span>Student Tracking</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="cta-buttons">
+                        <a href="{{ url_for('upload_page') }}" class="btn btn-primary btn-lg me-3">
+                            <i class="fas fa-upload me-2"></i>Start Analysis
+                        </a>
+                        <a href="#features" class="btn btn-outline-primary btn-lg">
+                            <i class="fas fa-info-circle me-2"></i>Learn More
+                        </a>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-lg-6">
+                <div class="hero-visual">
+                    <div class="demo-screen">
+                        <div class="screen-header">
+                            <div class="screen-controls">
+                                <span class="control red"></span>
+                                <span class="control yellow"></span>
+                                <span class="control green"></span>
+                            </div>
+                            <span class="screen-title">MindWatch Analysis</span>
+                        </div>
+                        <div class="screen-content">
+                            <div class="detection-demo">
+                                <div class="student-box attentive">
+                                    <span class="label">Listening: 0.92</span>
+                                </div>
+                                <div class="student-box distracted">
+                                    <span class="label">Using Mobile: 0.87</span>
+                                </div>
+                                <div class="student-box attentive">
+                                    <span class="label">Reading: 0.94</span>
+                                </div>
+                            </div>
+                            <div class="stats-overlay">
+                                <div class="stat-item">
+                                    <span class="stat-label">Engagement</span>
+                                    <span class="stat-value">78%</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Students</span>
+                                    <span class="stat-value">24</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Features Section -->
+<section id="features" class="py-5 bg-light">
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-12 text-center mb-5">
+                <h2 class="display-5 fw-bold text-dark">Powerful Features</h2>
+                <p class="lead text-muted">Advanced AI capabilities for comprehensive classroom analysis</p>
+            </div>
+        </div>
+        
+        <div class="row g-4">
+            <div class="col-lg-4 col-md-6">
+                <div class="feature-card h-100">
+                    <div class="feature-icon">
+                        <i class="fas fa-video text-primary"></i>
+                    </div>
+                    <h4>Video Analysis</h4>
+                    <p>Process classroom recordings to track student engagement over time with frame-by-frame analysis.</p>
+                </div>
+            </div>
+            
+            <div class="col-lg-4 col-md-6">
+                <div class="feature-card h-100">
+                    <div class="feature-icon">
+                        <i class="fas fa-image text-success"></i>
+                    </div>
+                    <h4>Image Detection</h4>
+                    <p>Analyze classroom snapshots to instantly identify student activities and engagement levels.</p>
+                </div>
+            </div>
+            
+            <div class="col-lg-4 col-md-6">
+                <div class="feature-card h-100">
+                    <div class="feature-icon">
+                        <i class="fas fa-bullseye text-warning"></i>
+                    </div>
+                    <h4>Behavior Detection</h4>
+                    <p>Identify specific activities: listening, reading, writing, sleeping, phone usage, and turning.</p>
+                </div>
+            </div>
+            
+            <div class="col-lg-4 col-md-6">
+                <div class="feature-card h-100">
+                    <div class="feature-icon">
+                        <i class="fas fa-chart-pie text-info"></i>
+                    </div>
+                    <h4>Analytics Dashboard</h4>
+                    <p>Comprehensive visualizations showing engagement patterns and student performance metrics.</p>
+                </div>
+            </div>
+            
+            <div class="col-lg-4 col-md-6">
+                <div class="feature-card h-100">
+                    <div class="feature-icon">
+                        <i class="fas fa-file-pdf text-danger"></i>
+                    </div>
+                    <h4>PDF Reports</h4>
+                    <p>Generate detailed reports with analysis results, charts, and recommendations for educators.</p>
+                </div>
+            </div>
+            
+            <div class="col-lg-4 col-md-6">
+                <div class="feature-card h-100">
+                    <div class="feature-icon">
+                        <i class="fas fa-clock text-purple"></i>
+                    </div>
+                    <h4>Real-time Processing</h4>
+                    <p>Fast, efficient processing with progress tracking and instant result visualization.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- How It Works Section -->
+<section class="py-5">
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-12 text-center mb-5">
+                <h2 class="display-5 fw-bold text-dark">How It Works</h2>
+                <p class="lead text-muted">Simple steps to analyze classroom engagement</p>
+            </div>
+        </div>
+        
+        <div class="row g-4">
+            <div class="col-lg-3 col-md-6 text-center">
+                <div class="step-item">
+                    <div class="step-number">1</div>
+                    <i class="fas fa-upload fa-2x text-primary mb-3"></i>
+                    <h5>Upload Media</h5>
+                    <p>Upload classroom videos (MP4, AVI, MOV) or images (JPG, PNG) for analysis.</p>
+                </div>
+            </div>
+            
+            <div class="col-lg-3 col-md-6 text-center">
+                <div class="step-item">
+                    <div class="step-number">2</div>
+                    <i class="fas fa-cogs fa-2x text-success mb-3"></i>
+                    <h5>AI Processing</h5>
+                    <p>Our trained YOLO model analyzes each frame to detect student activities and behaviors.</p>
+                </div>
+            </div>
+            
+            <div class="col-lg-3 col-md-6 text-center">
+                <div class="step-item">
+                    <div class="step-number">3</div>
+                    <i class="fas fa-chart-line fa-2x text-warning mb-3"></i>
+                    <h5>Generate Insights</h5>
+                    <p>View detailed analytics, engagement metrics, and behavioral patterns in real-time.</p>
+                </div>
+            </div>
+            
+            <div class="col-lg-3 col-md-6 text-center">
+                <div class="step-item">
+                    <div class="step-number">4</div>
+                    <i class="fas fa-download fa-2x text-info mb-3"></i>
+                    <h5>Export Results</h5>
+                    <p>Download annotated videos, comprehensive reports, and data summaries.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- CTA Section -->
+<section class="cta-section bg-primary text-white py-5">
+    <div class="container">
+        <div class="row align-items-center">
+            <div class="col-lg-8">
+                <h3 class="fw-bold mb-2">Ready to Transform Your Classroom Analysis?</h3>
+                <p class="mb-0">Start using MindWatch today and gain valuable insights into student engagement patterns.</p>
+            </div>
+            <div class="col-lg-4 text-lg-end">
+                <a href="{{ url_for('upload_page') }}" class="btn btn-light btn-lg">
+                    <i class="fas fa-rocket me-2"></i>Get Started Now
+                </a>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

@@ -1,0 +1,3 @@
+# This file ensures the models directory is tracked by git
+# The models directory is used to store AI model files
+# Place your trained YOLO model file (e.g., best.pt) in this directory

@@ -1,0 +1,370 @@
+{% extends "base.html" %}
+
+{% block title %}Results - MindWatch{% endblock %}
+
+{% block content %}
+<div class="container mt-5 pt-4">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="text-primary mb-1">
+                        <i class="fas fa-chart-line me-2"></i>Analysis Results
+                    </h2>
+                    <p class="text-muted mb-0">Comprehensive classroom engagement analysis</p>
+                </div>
+                <div>
+                    <a href="{{ url_for('analytics') }}" class="btn btn-primary me-2">
+                        <i class="fas fa-analytics me-2"></i>Detailed Analytics
+                    </a>
+                    <a href="{{ url_for('upload_page') }}" class="btn btn-outline-primary">
+                        <i class="fas fa-plus me-2"></i>New Analysis
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if summary %}
+    <!-- Summary Cards -->
+    <div class="row g-4 mb-5">
+        {% if file_type == 'image' %}
+        <!-- Image Analysis Summary -->
+        <div class="col-lg-3 col-md-6">
+            <div class="stat-card">
+                <div class="stat-icon bg-primary">
+                    <i class="fas fa-users"></i>
+                </div>
+                <div class="stat-content">
+                    <h3>{{ summary.get('total_students', 0) }}</h3>
+                    <p>Total Students</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-3 col-md-6">
+            <div class="stat-card">
+                <div class="stat-icon bg-success">
+                    <i class="fas fa-thumbs-up"></i>
+                </div>
+                <div class="stat-content">
+                    <h3>{{ summary.get('attentive_students', 0) }}</h3>
+                    <p>Attentive Students</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-3 col-md-6">
+            <div class="stat-card">
+                <div class="stat-icon bg-warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                </div>
+                <div class="stat-content">
+                    <h3>{{ summary.get('distracted_students', 0) }}</h3>
+                    <p>Distracted Students</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-3 col-md-6">
+            <div class="stat-card">
+                <div class="stat-icon bg-info">
+                    <i class="fas fa-percentage"></i>
+                </div>
+                <div class="stat-content">
+                    <h3>{{ "%.1f"|format(summary.get('engagement_rate', 0)) }}%</h3>
+                    <p>Engagement Rate</p>
+                </div>
+            </div>
+        </div>
+        
+        {% elif file_type == 'video' %}
+        <!-- Video Analysis Summary -->
+        <div class="col-lg-3 col-md-6">
+            <div class="stat-card">
+                <div class="stat-icon bg-primary">
+                    <i class="fas fa-clock"></i>
+                </div>
+                <div class="stat-content">
+                    <h3>{{ "%.1f"|format(summary.get('video_duration', 0)) }}s</h3>
+                    <p>Duration</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-3 col-md-6">
+            <div class="stat-card">
+                <div class="stat-icon bg-success">
+                    <i class="fas fa-users"></i>
+                </div>
+                <div class="stat-content">
+                    <h3>{{ summary.get('students_tracked', 0) }}</h3>
+                    <p>Students Tracked</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-3 col-md-6">
+            <div class="stat-card">
+                <div class="stat-icon bg-info">
+                    <i class="fas fa-film"></i>
+                </div>
+                <div class="stat-content">
+                    <h3>{{ summary.get('total_frames_analyzed', 0) }}</h3>
+                    <p>Frames Analyzed</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-3 col-md-6">
+            <div class="stat-card">
+                <div class="stat-icon bg-warning">
+                    <i class="fas fa-percentage"></i>
+                </div>
+                <div class="stat-content">
+                    {% set student_analysis = summary.get('student_analysis', {}) %}
+                    {% set total_students = student_analysis|length %}
+                    {% set attentive_count = student_analysis.values()|selectattr('classification', 'equalto', 'Attentive')|list|length %}
+                    {% set engagement_rate = (attentive_count / total_students * 100) if total_students > 0 else 0 %}
+                    <h3>{{ "%.1f"|format(engagement_rate) }}%</h3>
+                    <p>Avg Engagement</p>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Activity Breakdown -->
+    <div class="row mb-5">
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">
+                        <i class="fas fa-chart-bar me-2"></i>Activity Breakdown
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="activityChart" height="300"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-4">
+            <div class="card shadow-sm">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">
+                        <i class="fas fa-pie-chart me-2"></i>Engagement Overview
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="engagementChart" height="300"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if file_type == 'video' and summary.get('student_analysis') %}
+    <!-- Student Performance Table -->
+    <div class="row mb-5">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">
+                        <i class="fas fa-users me-2"></i>Individual Student Performance
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Student ID</th>
+                                    <th>Classification</th>
+                                    <th>Attentive %</th>
+                                    <th>Distracted %</th>
+                                    <th>Total Detections</th>
+                                    <th>Primary Activity</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for student_id, data in summary.student_analysis.items() %}
+                                <tr>
+                                    <td><strong>{{ student_id }}</strong></td>
+                                    <td>
+                                        <span class="badge bg-{{ 'success' if data.classification == 'Attentive' else 'warning' }}">
+                                            <i class="fas fa-{{ 'thumbs-up' if data.classification == 'Attentive' else 'exclamation-triangle' }} me-1"></i>
+                                            {{ data.classification }}
+                                        </span>
+                                    </td>
+                                    <td>{{ "%.1f"|format(data.attentive_percentage) }}%</td>
+                                    <td>{{ "%.1f"|format(data.distracted_percentage) }}%</td>
+                                    <td>{{ data.total_detections }}</td>
+                                    <td>
+                                        {% set primary_activity = data.activity_breakdown.items()|list|sort(attribute='1', reverse=true)|first %}
+                                        {{ primary_activity[0]|title if primary_activity else 'N/A' }}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Download Section -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">
+                        <i class="fas fa-download me-2"></i>Download Results
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <a href="{{ url_for('download_file', file_type=file_type, session_id=session_id) }}" 
+                               class="btn btn-primary w-100">
+                                <i class="fas fa-{{ 'video' if file_type == 'video' else 'image' }} me-2"></i>
+                                Download {{ file_type.title() }}
+                            </a>
+                        </div>
+                        <div class="col-md-4">
+                            <a href="{{ url_for('download_file', file_type='report', session_id=session_id) }}" 
+                               class="btn btn-success w-100">
+                                <i class="fas fa-file-pdf me-2"></i>
+                                Download Report
+                            </a>
+                        </div>
+                        <div class="col-md-4">
+                            <a href="{{ url_for('download_file', file_type='summary', session_id=session_id) }}" 
+                               class="btn btn-info w-100">
+                                <i class="fas fa-file-code me-2"></i>
+                                Download Data
+                            </a>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-3">
+                        <small class="text-muted">
+                            <i class="fas fa-info-circle me-1"></i>
+                            Files will be automatically deleted after 24 hours for privacy and storage optimization.
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    {% else %}
+    <!-- No Results State -->
+    <div class="row">
+        <div class="col-12">
+            <div class="text-center py-5">
+                <i class="fas fa-exclamation-triangle fa-4x text-warning mb-3"></i>
+                <h3>No Results Available</h3>
+                <p class="text-muted mb-4">Please upload and process a file to view results.</p>
+                <a href="{{ url_for('upload_page') }}" class="btn btn-primary">
+                    <i class="fas fa-upload me-2"></i>Upload File
+                </a>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+{% if summary %}
+<script>
+// Chart data from backend
+const summaryData = {{ summary|tojson }};
+
+// Activity Breakdown Chart
+const activityCtx = document.getElementById('activityChart').getContext('2d');
+const activityBreakdown = summaryData.activity_breakdown || {};
+
+new Chart(activityCtx, {
+    type: 'bar',
+    data: {
+        labels: Object.keys(activityBreakdown).map(label => label.charAt(0).toUpperCase() + label.slice(1)),
+        datasets: [{
+            label: 'Number of Detections',
+            data: Object.values(activityBreakdown),
+            backgroundColor: [
+                '#28a745', '#007bff', '#17a2b8', '#ffc107', '#dc3545', '#6f42c1'
+            ],
+            borderColor: [
+                '#1e7e34', '#0056b3', '#117a8b', '#e0a800', '#c82333', '#59359a'
+            ],
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: false
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    stepSize: 1
+                }
+            }
+        }
+    }
+});
+
+// Engagement Overview Chart
+const engagementCtx = document.getElementById('engagementChart').getContext('2d');
+
+{% if file_type == 'image' %}
+const engagementData = {
+    labels: ['Attentive', 'Distracted'],
+    datasets: [{
+        data: [{{ summary.get('attentive_students', 0) }}, {{ summary.get('distracted_students', 0) }}],
+        backgroundColor: ['#28a745', '#dc3545'],
+        borderWidth: 2,
+        borderColor: '#fff'
+    }]
+};
+{% elif file_type == 'video' %}
+{% set student_analysis = summary.get('student_analysis', {}) %}
+{% set total_students = student_analysis|length %}
+{% set attentive_count = student_analysis.values()|selectattr('classification', 'equalto', 'Attentive')|list|length %}
+{% set distracted_count = total_students - attentive_count %}
+const engagementData = {
+    labels: ['Attentive', 'Distracted'],
+    datasets: [{
+        data: [{{ attentive_count }}, {{ distracted_count }}],
+        backgroundColor: ['#28a745', '#dc3545'],
+        borderWidth: 2,
+        borderColor: '#fff'
+    }]
+};
+{% endif %}
+
+new Chart(engagementCtx, {
+    type: 'doughnut',
+    data: engagementData,
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'bottom'
+            }
+        }
+    }
+});
+</script>
+{% endif %}
+{% endblock %}
