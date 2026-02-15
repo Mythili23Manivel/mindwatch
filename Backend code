@@ -1,0 +1,986 @@
+import cv2
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from collections import defaultdict, Counter
+import json
+import os
+from datetime import datetime
+import seaborn as sns
+from typing import Dict, List, Tuple, Any
+import warnings
+import torch
+from PIL import Image
+import yaml
+warnings.filterwarnings('ignore')
+
+class MindWatchAnalyzer:
+    def __init__(self, model_path: str):
+        """
+        Initialize MindWatch Analyzer with local YOLO model
+
+        Args:
+            model_path: Path to your trained .pt model file
+        """
+        self.model_path = model_path
+
+        # Load YOLO model
+        print(f"Loading model from: {model_path}")
+        try:
+            # Try YOLOv8 first
+            from ultralytics import YOLO
+            self.model = YOLO(model_path)
+            self.model_type = "yolov8"
+            print("✓ YOLOv8 model loaded successfully")
+        except ImportError:
+            try:
+                # Fallback to YOLOv5
+                self.model = torch.hub.load('ultralytics/yolov5', 'custom', path=model_path)
+                self.model_type = "yolov5"
+                print("✓ YOLOv5 model loaded successfully")
+            except Exception as e:
+                print(f"Error loading model: {e}")
+                raise
+
+        # Define activity categories
+        self.attentive_activities = ['listening', 'reading', 'writing']
+        self.distracted_activities = ['sleeping', 'using_mobile', 'turn', 'turning']
+
+        # Tracking variables
+        self.student_tracks = defaultdict(list)
+        self.frame_count = 0
+        self.fps = 30  # Default FPS, will be updated for videos
+
+        # Results storage
+        self.detection_results = []
+        self.student_summaries = {}
+
+        # Get class names from model
+        try:
+            if hasattr(self.model, 'names'):
+                self.class_names = self.model.names
+            else:
+                # Default class names based on your training
+                self.class_names = {0: 'listening', 1: 'reading', 2: 'sleeping',
+                                  3: 'student', 4: 'turn', 5: 'using_mobile', 6: 'writing'}
+            print(f"Model classes: {self.class_names}")
+        except:
+            self.class_names = {0: 'listening', 1: 'reading', 2: 'sleeping',
+                              3: 'student', 4: 'turn', 5: 'using_mobile', 6: 'writing'}
+
+    def detect_objects(self, image_path: str, confidence: float = 0.4):
+        """
+        Detect objects in a single image using local YOLO model
+
+        Args:
+            image_path: Path to the image file
+            confidence: Confidence threshold (0.0-1.0)
+
+        Returns:
+            Detection results
+        """
+        try:
+            if self.model_type == "yolov8":
+                # YOLOv8 inference
+                results = self.model(image_path, conf=confidence)
+                return self.parse_yolov8_results(results[0])
+            else:
+                # YOLOv5 inference
+                results = self.model(image_path)
+                results.conf = confidence  # Set confidence threshold
+                return self.parse_yolov5_results(results)
+        except Exception as e:
+            print(f"Error in object detection: {e}")
+            return None
+
+    def parse_yolov8_results(self, result):
+        """Parse YOLOv8 results to standard format"""
+        detections = []
+
+        if result.boxes is not None:
+            boxes = result.boxes.xyxy.cpu().numpy()  # x1, y1, x2, y2
+            confidences = result.boxes.conf.cpu().numpy()
+            classes = result.boxes.cls.cpu().numpy().astype(int)
+
+            for i in range(len(boxes)):
+                x1, y1, x2, y2 = boxes[i]
+                conf = confidences[i]
+                cls = classes[i]
+
+                # Convert to center format
+                x_center = (x1 + x2) / 2
+                y_center = (y1 + y2) / 2
+                width = x2 - x1
+                height = y2 - y1
+
+                class_name = self.class_names.get(cls, f"class_{cls}")
+
+                detections.append({
+                    'class': class_name,
+                    'confidence': float(conf),
+                    'x': float(x_center),
+                    'y': float(y_center),
+                    'width': float(width),
+                    'height': float(height),
+                    'x1': float(x1),
+                    'y1': float(y1),
+                    'x2': float(x2),
+                    'y2': float(y2)
+                })
+
+        return {'predictions': detections}
+
+    def parse_yolov5_results(self, results):
+        """Parse YOLOv5 results to standard format"""
+        detections = []
+
+        # Get pandas dataframe of results
+        df = results.pandas().xyxy[0]
+
+        for _, row in df.iterrows():
+            x1, y1, x2, y2 = row['xmin'], row['ymin'], row['xmax'], row['ymax']
+            conf = row['confidence']
+            cls = row['class']
+
+            # Convert to center format
+            x_center = (x1 + x2) / 2
+            y_center = (y1 + y2) / 2
+            width = x2 - x1
+            height = y2 - y1
+
+            class_name = row['name'] if 'name' in row else self.class_names.get(cls, f"class_{cls}")
+
+            detections.append({
+                'class': class_name,
+                'confidence': float(conf),
+                'x': float(x_center),
+                'y': float(y_center),
+                'width': float(width),
+                'height': float(height),
+                'x1': float(x1),
+                'y1': float(y1),
+                'x2': float(x2),
+                'y2': float(y2)
+            })
+
+        return {'predictions': detections}
+
+    def process_single_image(self, image_path: str, output_path: str = None):
+        """
+        Process a single image and generate annotated output
+
+        Args:
+            image_path: Path to input image
+            output_path: Path to save annotated image
+        """
+        print("Processing single image...")
+
+        # Detect objects
+        results = self.detect_objects(image_path)
+        if not results or not results.get('predictions'):
+            print("No detections found or error occurred")
+            return
+
+        # Load image
+        image = cv2.imread(image_path)
+        if image is None:
+            print(f"Could not load image: {image_path}")
+            return
+
+        # Annotate image
+        annotated_image = self.annotate_frame(image, results)
+
+        # Save annotated image
+        if output_path:
+            cv2.imwrite(output_path, annotated_image)
+            print(f"✓ Annotated image saved to: {output_path}")
+
+        # Display image in Colab
+        self.display_image(annotated_image)
+
+        # Generate summary for single image
+        self.generate_image_summary(results)
+
+        return annotated_image, results
+
+    def display_image(self, image):
+        """Display image in Google Colab"""
+        try:
+            # Convert BGR to RGB for matplotlib
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            plt.figure(figsize=(12, 8))
+            plt.imshow(image_rgb)
+            plt.axis('off')
+            plt.title('MindWatch Analysis Results')
+            plt.show()
+        except Exception as e:
+            print(f"Could not display image: {e}")
+
+    def process_video(self, video_path: str, output_path: str = None, sample_rate: int = 5):
+        """
+        Process video file and generate annotated output with tracking
+
+        Args:
+            video_path: Path to input video
+            output_path: Path to save annotated video
+            sample_rate: Process every nth frame (recommended: 3-10 for speed)
+        """
+        print("🎥 Processing video...")
+
+        # Open video
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            print(f"❌ Could not open video: {video_path}")
+            return
+
+        # Get video properties
+        self.fps = cap.get(cv2.CAP_PROP_FPS)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        print(f"📹 Video: {width}x{height}, {self.fps:.1f} FPS, {total_frames} frames")
+        print(f"⏱️  Duration: {total_frames/self.fps:.1f} seconds")
+        print(f"🔄 Processing every {sample_rate} frames for efficiency")
+
+        # Setup video writer if output path provided
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = None
+        if output_path:
+            out = cv2.VideoWriter(output_path, fourcc, self.fps/sample_rate, (width, height))
+
+        frame_number = 0
+        processed_frames = 0
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            # Process every nth frame based on sample_rate
+            if frame_number % sample_rate == 0:
+                # Save frame temporarily for detection
+                temp_frame_path = f"temp_frame_{frame_number}.jpg"
+                cv2.imwrite(temp_frame_path, frame)
+
+                # Detect objects
+                results = self.detect_objects(temp_frame_path)
+
+                # Clean up temp file
+                if os.path.exists(temp_frame_path):
+                    os.remove(temp_frame_path)
+
+                if results and results.get('predictions'):
+                    # Update tracking
+                    self.update_tracking(results, frame_number)
+
+                    # Annotate frame
+                    annotated_frame = self.annotate_frame(frame, results)
+
+                    # Store results
+                    self.detection_results.append({
+                        'frame': frame_number,
+                        'timestamp': frame_number / self.fps,
+                        'detections': results
+                    })
+                else:
+                    annotated_frame = frame
+
+                # Write frame if output video specified
+                if out:
+                    out.write(annotated_frame)
+
+                processed_frames += 1
+
+                # Progress update every 30 processed frames
+                if processed_frames % 30 == 0:
+                    progress = (frame_number / total_frames) * 100
+                    print(f"⚡ Progress: {progress:.1f}% ({frame_number}/{total_frames} frames)")
+
+            frame_number += 1
+
+        # Cleanup
+        cap.release()
+        if out:
+            out.release()
+
+        print(f"✅ Video processing complete! Processed {processed_frames} frames.")
+
+        # Generate comprehensive summary
+        self.generate_video_summary()
+
+    def annotate_frame(self, frame: np.ndarray, results: dict) -> np.ndarray:
+        """
+        Annotate frame with detection results
+
+        Args:
+            frame: Input frame
+            results: Detection results
+
+        Returns:
+            Annotated frame
+        """
+        annotated_frame = frame.copy()
+
+        if 'predictions' not in results:
+            return annotated_frame
+
+        # Define colors for different activities (BGR format for OpenCV)
+        colors = {
+            'listening': (0, 255, 0),      # Green - Attentive
+            'reading': (255, 0, 0),        # Blue - Attentive
+            'writing': (0, 0, 255),        # Red - Attentive
+            'sleeping': (128, 0, 128),     # Purple - Distracted
+            'using_mobile': (0, 0, 0),     # Black - Distracted
+            'turn': (0, 255, 255),         # Yellow - Distracted
+            'turning': (0, 255, 255),      # Yellow - Distracted
+            'student': (255, 255, 255)     # White - Neutral
+        }
+
+        for prediction in results['predictions']:
+            class_name = prediction['class']
+            confidence = prediction['confidence']
+
+            # Use provided coordinates or calculate from center/width/height
+            if 'x1' in prediction:
+                x1, y1, x2, y2 = int(prediction['x1']), int(prediction['y1']), int(prediction['x2']), int(prediction['y2'])
+            else:
+                x, y = prediction['x'], prediction['y']
+                w, h = prediction['width'], prediction['height']
+                x1, y1 = int(x - w/2), int(y - h/2)
+                x2, y2 = int(x + w/2), int(y + h/2)
+
+            # Get color for this class
+            color = colors.get(class_name, (255, 255, 255))
+
+            # Draw bounding box with thickness based on confidence
+            thickness = max(2, int(confidence * 4))
+            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, thickness)
+
+            # Draw label with background
+            label = f"{class_name}: {confidence:.2f}"
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.6
+            font_thickness = 2
+
+            # Get text size for background rectangle
+            (text_width, text_height), baseline = cv2.getTextSize(label, font, font_scale, font_thickness)
+
+            # Draw background rectangle
+            cv2.rectangle(annotated_frame, (x1, y1 - text_height - 10),
+                         (x1 + text_width, y1), color, -1)
+
+            # Draw text
+            cv2.putText(annotated_frame, label, (x1, y1 - 5),
+                       font, font_scale, (255, 255, 255), font_thickness)
+
+        return annotated_frame
+
+    def update_tracking(self, results: dict, frame_number: int):
+        """
+        Update student tracking across frames
+
+        Args:
+            results: Detection results
+            frame_number: Current frame number
+        """
+        if 'predictions' not in results:
+            return
+
+        # Simple tracking based on position proximity
+        # In a more sophisticated system, you'd use proper object tracking algorithms
+        for i, prediction in enumerate(results['predictions']):
+            student_id = f"student_{i}"  # Simple ID assignment
+            activity = prediction['class']
+            confidence = prediction['confidence']
+
+            self.student_tracks[student_id].append({
+                'frame': frame_number,
+                'timestamp': frame_number / self.fps,
+                'activity': activity,
+                'confidence': confidence,
+                'bbox': {
+                    'x': prediction['x'],
+                    'y': prediction['y'],
+                    'width': prediction['width'],
+                    'height': prediction['height']
+                }
+            })
+
+        # Update frame count
+        self.frame_count = max(self.frame_count, frame_number)
+
+    def generate_image_summary(self, results: dict):
+        """
+        Generate summary for single image analysis
+
+        Args:
+            results: Detection results
+        """
+        if 'predictions' not in results or not results['predictions']:
+            print("❌ No detections found in image")
+            return
+
+        activity_counts = Counter()
+        for prediction in results['predictions']:
+            activity_counts[prediction['class']] += 1
+
+        print("\n" + "="*50)
+        print("📊 IMAGE ANALYSIS SUMMARY")
+        print("="*50)
+        print(f"Total detections: {len(results['predictions'])}")
+        print("\n🎯 Activity breakdown:")
+        for activity, count in activity_counts.most_common():
+            status = "✅ Attentive" if activity in self.attentive_activities else "⚠️  Distracted"
+            print(f"  {activity}: {count} ({status})")
+
+        # Classification
+        attentive_count = sum(count for activity, count in activity_counts.items()
+                            if activity in self.attentive_activities)
+        distracted_count = sum(count for activity, count in activity_counts.items()
+                             if activity in self.distracted_activities)
+
+        print(f"\n✅ Attentive behaviors: {attentive_count}")
+        print(f"⚠️  Distracted behaviors: {distracted_count}")
+
+        if distracted_count > attentive_count:
+            print("🔴 Overall assessment: DISTRACTED")
+        else:
+            print("🟢 Overall assessment: ATTENTIVE")
+
+    def generate_video_summary(self):
+        """
+        Generate comprehensive summary for video analysis
+        """
+        print("\n" + "="*60)
+        print("📈 COMPREHENSIVE VIDEO ANALYSIS SUMMARY")
+        print("="*60)
+
+        total_duration = self.frame_count / self.fps if self.fps > 0 else 0
+        print(f"📹 Total video duration: {total_duration:.2f} seconds")
+        print(f"🎬 Total frames processed: {len(self.detection_results)}")
+        print(f"👥 Students tracked: {len(self.student_tracks)}")
+
+        # Analyze each student's behavior
+        for student_id, track in self.student_tracks.items():
+            if not track:
+                continue
+
+            print(f"\n" + "="*40)
+            print(f"👤 {student_id.upper().replace('_', ' ')}")
+            print("="*40)
+
+            # Calculate time spent on each activity
+            activity_time = defaultdict(float)
+            total_time = 0
+
+            for i in range(len(track) - 1):
+                current = track[i]
+                next_item = track[i + 1]
+                duration = next_item['timestamp'] - current['timestamp']
+                activity_time[current['activity']] += duration
+                total_time += duration
+
+            # Handle last detection
+            if track:
+                last_duration = 5.0 / self.fps  # Assume 5 frame duration
+                activity_time[track[-1]['activity']] += last_duration
+                total_time += last_duration
+
+            # Calculate percentages and classify
+            attentive_time = sum(time for activity, time in activity_time.items()
+                               if activity in self.attentive_activities)
+            distracted_time = sum(time for activity, time in activity_time.items()
+                                if activity in self.distracted_activities)
+
+            print(f"⏱️  Total tracked time: {total_time:.2f}s")
+            print(f"📊 Time breakdown:")
+            for activity, time in sorted(activity_time.items(), key=lambda x: x[1], reverse=True):
+                percentage = (time / total_time * 100) if total_time > 0 else 0
+                status = "✅" if activity in self.attentive_activities else "⚠️ "
+                print(f"  {status} {activity}: {time:.2f}s ({percentage:.1f}%)")
+
+            # Final classification
+            distraction_ratio = distracted_time / total_time if total_time > 0 else 0
+            if distraction_ratio > 0.5:
+                classification = "🔴 DISTRACTED"
+                emoji = "😴"
+            else:
+                classification = "🟢 ATTENTIVE"
+                emoji = "📚"
+
+            print(f"\n📈 Summary:")
+            print(f"  ✅ Attentive time: {attentive_time:.2f}s ({attentive_time/total_time*100:.1f}%)")
+            print(f"  ⚠️  Distracted time: {distracted_time:.2f}s ({distracted_time/total_time*100:.1f}%)")
+            print(f"  {emoji} Final classification: {classification}")
+
+            # Store summary
+            self.student_summaries[student_id] = {
+                'total_time': total_time,
+                'activity_breakdown': dict(activity_time),
+                'attentive_time': attentive_time,
+                'distracted_time': distracted_time,
+                'classification': classification.replace('🔴 ', '').replace('🟢 ', ''),
+                'distraction_ratio': distraction_ratio
+            }
+
+        # Overall classroom summary
+        if self.student_summaries:
+            total_students = len(self.student_summaries)
+            distracted_students = sum(1 for s in self.student_summaries.values()
+                                    if s['distraction_ratio'] > 0.5)
+            attentive_students = total_students - distracted_students
+
+            print(f"\n" + "="*60)
+            print("🎓 CLASSROOM OVERVIEW")
+            print("="*60)
+            print(f"👥 Total students: {total_students}")
+            print(f"🟢 Attentive students: {attentive_students} ({attentive_students/total_students*100:.1f}%)")
+            print(f"🔴 Distracted students: {distracted_students} ({distracted_students/total_students*100:.1f}%)")
+
+            if attentive_students > distracted_students:
+                print("🏆 Overall classroom engagement: GOOD")
+            else:
+                print("⚠️  Overall classroom engagement: NEEDS ATTENTION")
+
+    def save_detailed_report(self, output_path: str = "mindwatch_report.json"):
+        """
+        Save detailed analysis report to JSON file
+
+        Args:
+            output_path: Path to save the report
+        """
+        report = {
+            'analysis_timestamp': datetime.now().isoformat(),
+            'model_info': {
+                'model_path': self.model_path,
+                'model_type': self.model_type,
+                'class_names': self.class_names
+            },
+            'video_info': {
+                'fps': self.fps,
+                'total_frames_processed': len(self.detection_results),
+                'duration_seconds': self.frame_count / self.fps if self.fps > 0 else 0
+            },
+            'classroom_summary': {
+                'total_students': len(self.student_summaries),
+                'attentive_students': sum(1 for s in self.student_summaries.values()
+                                        if s['distraction_ratio'] <= 0.5),
+                'distracted_students': sum(1 for s in self.student_summaries.values()
+                                         if s['distraction_ratio'] > 0.5)
+            },
+            'individual_student_analysis': self.student_summaries,
+            'sample_detections': self.detection_results[:50]  # First 50 frames
+        }
+
+        with open(output_path, 'w') as f:
+            json.dump(report, f, indent=2)
+
+        print(f"📄 Detailed report saved to: {output_path}")
+        return output_path
+
+    def create_visualizations(self, output_dir: str = "visualizations"):
+        """
+        Create visualization plots for the analysis
+
+        Args:
+            output_dir: Directory to save visualizations
+        """
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        if not self.student_summaries:
+            print("❌ No student summaries available for visualization")
+            return
+
+        # Set style for better looking plots
+        plt.style.use('default')
+        sns.set_palette("husl")
+
+        # Create comprehensive visualization
+        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+        fig.suptitle('🎓 MindWatch Classroom Analysis Dashboard', fontsize=16, fontweight='bold')
+
+        # Subplot 1: Overall activity distribution
+        ax1 = axes[0, 0]
+        all_activities = defaultdict(float)
+        for student_data in self.student_summaries.values():
+            for activity, time in student_data['activity_breakdown'].items():
+                all_activities[activity] += time
+
+        if all_activities:
+            colors = ['green' if act in self.attentive_activities else 'red'
+                     for act in all_activities.keys()]
+            wedges, texts, autotexts = ax1.pie(all_activities.values(), labels=all_activities.keys(),
+                                              autopct='%1.1f%%', colors=colors, startangle=90)
+            ax1.set_title('📊 Overall Activity Distribution')
+
+        # Subplot 2: Attention vs Distraction
+        ax2 = axes[0, 1]
+        classifications = [data['classification'] for data in self.student_summaries.values()]
+        class_counts = Counter(classifications)
+
+        colors = ['green' if cls == 'ATTENTIVE' else 'red' for cls in class_counts.keys()]
+        wedges, texts, autotexts = ax2.pie(class_counts.values(), labels=class_counts.keys(),
+                                          autopct='%1.1f%%', colors=colors, startangle=90)
+        ax2.set_title('👥 Student Classification')
+
+        # Subplot 3: Individual student attention ratios
+        ax3 = axes[1, 0]
+        students = list(self.student_summaries.keys())
+        attention_ratios = []
+        for student_data in self.student_summaries.values():
+            total = student_data['total_time']
+            attentive = student_data['attentive_time']
+            ratio = attentive / total * 100 if total > 0 else 0
+            attention_ratios.append(ratio)
+
+        colors = ['green' if ratio >= 50 else 'red' for ratio in attention_ratios]
+        bars = ax3.bar(range(len(students)), attention_ratios, color=colors, alpha=0.7)
+        ax3.set_title('📈 Individual Attention Levels (%)')
+        ax3.set_ylabel('Attention Percentage')
+        ax3.set_xlabel('Students')
+        ax3.set_xticks(range(len(students)))
+        ax3.set_xticklabels([s.replace('student_', 'S') for s in students], rotation=45)
+        ax3.axhline(y=50, color='black', linestyle='--', alpha=0.5, label='Threshold')
+        ax3.legend()
+
+        # Add value labels on bars
+        for bar, ratio in zip(bars, attention_ratios):
+            ax3.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1,
+                    f'{ratio:.1f}%', ha='center', va='bottom', fontsize=8)
+
+        # Subplot 4: Activity heatmap
+        ax4 = axes[1, 1]
+        if len(students) > 0:
+            activity_matrix = []
+            all_activity_types = set()
+            for student_data in self.student_summaries.values():
+                all_activity_types.update(student_data['activity_breakdown'].keys())
+
+            all_activity_types = sorted(list(all_activity_types))
+
+            for student in students:
+                student_activities = []
+                for activity in all_activity_types:
+                    time_spent = self.student_summaries[student]['activity_breakdown'].get(activity, 0)
+                    student_activities.append(time_spent)
+                activity_matrix.append(student_activities)
+
+            if activity_matrix and all_activity_types:
+                im = ax4.imshow(activity_matrix, cmap='YlOrRd', aspect='auto')
+
+                # Add colorbar
+                cbar = plt.colorbar(im, ax=ax4, shrink=0.8)
+                cbar.set_label('Time (seconds)', rotation=270, labelpad=20)
+
+                # Set labels
+                ax4.set_yticks(range(len(students)))
+                ax4.set_yticklabels([s.replace('student_', 'S') for s in students])
+                ax4.set_xticks(range(len(all_activity_types)))
+                ax4.set_xticklabels(all_activity_types, rotation=45, ha='right')
+                ax4.set_title('🔥 Activity Heatmap by Student')
+
+                # Add text annotations
+                for i in range(len(students)):
+                    for j in range(len(all_activity_types)):
+                        value = activity_matrix[i][j]
+                        if value > 0:
+                            ax4.text(j, i, f'{value:.1f}', ha='center', va='center',
+                                   color='white' if value > np.max(activity_matrix)/2 else 'black',
+                                   fontsize=8)
+
+        plt.tight_layout()
+
+        # Save the plot
+        plot_path = f"{output_dir}/mindwatch_analysis.png"
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight', facecolor='white')
+        plt.show()
+
+        print(f"📊 Visualizations saved to: {plot_path}")
+        return plot_path
+
+# Google Colab specific functions
+def setup_environment():
+    """
+    Set up the environment for MindWatch in Google Colab
+    """
+    print("🚀 Setting up MindWatch environment...")
+
+    # Install required packages
+    print("📦 Installing required packages...")
+    import subprocess
+    import sys
+
+    packages = [
+        "ultralytics",  # For YOLOv8
+        "torch",
+        "torchvision",
+        "opencv-python",
+        "matplotlib",
+        "seaborn",
+        "pandas",
+        "Pillow"
+    ]
+
+    for package in packages:
+        try:
+            __import__(package.replace('-', '_').split('[')[0])
+            print(f"✅ {package} already installed")
+        except ImportError:
+            print(f"📥 Installing {package}...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+    print("✅ Environment setup complete!")
+
+def run_mindwatch_analysis(model_path: str):
+    """
+    Main function to run MindWatch analysis
+
+    Args:
+        model_path: Path to your trained .pt model file
+    """
+    print("🎯 Starting MindWatch Analysis...")
+
+    # Initialize analyzer
+    analyzer = MindWatchAnalyzer(model_path)
+
+    return analyzer
+
+def upload_and_process_file(model_path: str):
+    """
+    Helper function for Google Colab file upload and processing
+
+    Args:
+        model_path: Path to your trained model file
+    """
+    try:
+        from google.colab import files
+    except ImportError:
+        print("❌ This function is designed for Google Colab. Use run_mindwatch_analysis() instead.")
+        return
+
+    print("📁 Please upload your video or image file:")
+    uploaded = files.upload()
+
+    if not uploaded:
+        print("❌ No file uploaded")
+        return
+
+    filename = list(uploaded.keys())[0]
+    print(f"📂 Processing uploaded file: {filename}")
+
+    # Initialize analyzer
+    analyzer = MindWatchAnalyzer(model_path)
+
+    # Determine file type and process accordingly
+    file_extension = filename.lower().split('.')[-1]
+
+    if file_extension in ['jpg', 'jpeg', 'png', 'bmp']:
+        print("🖼️  Processing image...")
+        # Process image
+        annotated_image, results = analyzer.process_single_image(
+            image_path=filename,
+            output_path=f"annotated_{filename}"
+        )
+
+        # Download the annotated image
+        files.download(f"annotated_{filename}")
+
+    elif file_extension in ['mp4', 'avi', 'mov', 'mkv', 'webm']:
+        print("🎬 Processing video...")
+        # Process video
+        analyzer.process_video(
+            video_path=filename,
+            output_path=f"annotated_{filename}",
+            sample_rate=5  # Process every 5th frame for efficiency
+        )
+
+        # Save report and visualizations
+        report_path = analyzer.save_detailed_report("mindwatch_detailed_report.json")
+        plot_path = analyzer.create_visualizations()
+
+        # Download results
+        print("💾 Preparing downloads...")
+        try:
+            files.download(f"annotated_{filename}")
+            files.download("mindwatch_detailed_report.json")
+            files.download("visualizations/mindwatch_analysis.png")
+        except Exception as e:
+            print(f"⚠️  Download error: {e}")
+            print("Files are saved locally and can be accessed from the file browser")
+
+    else:
+        print(f"❌ Unsupported file format: {file_extension}")
+        print("✅ Supported formats:")
+        print("   📸 Images: jpg, jpeg, png, bmp")
+        print("   🎥 Videos: mp4, avi, mov, mkv, webm")
+
+    return analyzer
+
+def process_local_file(model_path: str, file_path: str, output_dir: str = "output"):
+    """
+    Process a local file (for when you already have files uploaded)
+
+    Args:
+        model_path: Path to your trained model
+        file_path: Path to your video/image file
+        output_dir: Directory to save outputs
+    """
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    print(f"🎯 Processing local file: {file_path}")
+
+    # Initialize analyzer
+    analyzer = MindWatchAnalyzer(model_path)
+
+    # Check if file exists
+    if not os.path.exists(file_path):
+        print(f"❌ File not found: {file_path}")
+        return None
+
+    # Determine file type
+    file_extension = file_path.lower().split('.')[-1]
+    base_name = os.path.splitext(os.path.basename(file_path))[0]
+
+    if file_extension in ['jpg', 'jpeg', 'png', 'bmp']:
+        print("🖼️  Processing image...")
+        # Process image
+        output_path = os.path.join(output_dir, f"annotated_{base_name}.{file_extension}")
+        annotated_image, results = analyzer.process_single_image(
+            image_path=file_path,
+            output_path=output_path
+        )
+
+    elif file_extension in ['mp4', 'avi', 'mov', 'mkv', 'webm']:
+        print("🎬 Processing video...")
+        # Process video
+        output_path = os.path.join(output_dir, f"annotated_{base_name}.mp4")
+        analyzer.process_video(
+            video_path=file_path,
+            output_path=output_path,
+            sample_rate=3  # Process every 3rd frame
+        )
+
+        # Save additional outputs
+        analyzer.save_detailed_report(os.path.join(output_dir, "detailed_report.json"))
+        analyzer.create_visualizations(os.path.join(output_dir, "visualizations"))
+
+        print(f"✅ All outputs saved to: {output_dir}/")
+
+    else:
+        print(f"❌ Unsupported file format: {file_extension}")
+        return None
+
+    return analyzer
+
+# ===================================================================
+# GOOGLE COLAB USAGE INSTRUCTIONS AND EXAMPLE CODE
+# ===================================================================
+
+def print_usage_instructions():
+    """
+    Print detailed usage instructions for Google Colab
+    """
+    print("""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                        🎓 MINDWATCH USAGE GUIDE                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+📋 STEP 1: SETUP ENVIRONMENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Run this first to install all required packages:
+
+    setup_environment()
+
+📋 STEP 2: MOUNT GOOGLE DRIVE (if your model is in Drive)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    from google.colab import drive
+    drive.mount('/content/drive')
+
+📋 STEP 3: SET YOUR MODEL PATH
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Replace with your actual model path:
+
+    MODEL_PATH = "/content/drive/MyDrive/fest/emotion_best.pt"
+
+📋 STEP 4: CHOOSE YOUR PROCESSING METHOD
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔹 METHOD A: Upload files directly in Colab
+    analyzer = upload_and_process_file(MODEL_PATH)
+
+🔹 METHOD B: Process files already in your drive
+    analyzer = process_local_file(
+        model_path=MODEL_PATH,
+        file_path="/content/drive/MyDrive/your_video.mp4",
+        output_dir="results"
+    )
+
+🔹 METHOD C: Just initialize analyzer for custom usage
+    analyzer = run_mindwatch_analysis(MODEL_PATH)
+    # Then use analyzer.process_single_image() or analyzer.process_video()
+
+📊 OUTPUTS YOU'LL GET:
+━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ Annotated video/image with bounding boxes
+✅ Detailed console analysis for each student
+✅ JSON report with comprehensive data
+✅ Visualization charts and heatmaps
+✅ Classification: ATTENTIVE vs DISTRACTED
+
+🎯 ACTIVITY CATEGORIES:
+━━━━━━━━━━━━━━━━━━━━━━━━━
+🟢 ATTENTIVE: listening, reading, writing
+🔴 DISTRACTED: sleeping, using_mobile, turn/turning
+
+⚡ PERFORMANCE TIPS:
+━━━━━━━━━━━━━━━━━━━━━━━
+• For faster processing, increase sample_rate (process every 5-10 frames)
+• Large videos may take time - be patient!
+• Lower confidence threshold (0.3) for more detections
+• Higher confidence threshold (0.6) for more accurate detections
+
+🐛 TROUBLESHOOTING:
+━━━━━━━━━━━━━━━━━━━━━━
+• Model not loading? Check the file path
+• No detections? Try lowering confidence threshold
+• Out of memory? Reduce video resolution or increase sample_rate
+• Slow processing? Use smaller videos or increase sample_rate
+
+""")
+
+# Example usage code for copy-paste
+EXAMPLE_CODE = '''
+# 🚀 COMPLETE EXAMPLE FOR GOOGLE COLAB 🚀
+
+# Step 1: Setup
+setup_environment()
+
+# Step 2: Mount Google Drive
+from google.colab import drive
+drive.mount('/content/drive')
+
+# Step 3: Set model path (CHANGE THIS TO YOUR PATH!)
+MODEL_PATH = "/content/drive/MyDrive/fest/emotion_best.pt"
+
+# Step 4: Process files
+# Option A: Upload and process
+analyzer = upload_and_process_file(MODEL_PATH)
+
+# Option B: Process existing file
+# analyzer = process_local_file(
+#     model_path=MODEL_PATH,
+#     file_path="/content/drive/MyDrive/your_video.mp4"
+# )
+
+# That's it! Your analysis will run automatically 🎉
+'''
+
+# Print instructions when module is loaded
+print_usage_instructions()
+print("📋 Ready to use! Copy the example code below to get started:")
+print("="*80)
+print(EXAMPLE_CODE)
+print("="*80)
